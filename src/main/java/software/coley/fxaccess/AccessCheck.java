@@ -5,6 +5,7 @@ import jakarta.annotation.Nullable;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -63,17 +64,17 @@ public class AccessCheck {
 	 * Called by the instrumented agent code.
 	 */
 	public static void check() {
-		// Trace model:
-		//   [0] java.base/java.lang.Thread.getStackTrace
-		//   [1] software.coley.fxaccess.AccessCheck.check (this method)
-		//   [2] <calling-context>
-		Thread thread = Thread.currentThread();
-		StackTraceElement[] trace = thread.getStackTrace();
-		StackTraceElement callingContext = trace[2];
-
 		// Lookup known signature at the given calling context location.
-		String locationKey = key(callingContext);
-		String signature = locationToSignature.get(locationKey);
+		String signature;
+		StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+		Optional<StackWalker.StackFrame> callingFrame = walker.walk(frames -> frames.skip(1).findFirst());
+		if (callingFrame.isPresent()) {
+			StackWalker.StackFrame frame = callingFrame.get();
+			String locationKey = key(frame.getClassName(), frame.getMethodName(), frame.getLineNumber());
+			signature = locationToSignature.get(locationKey);
+		} else {
+			signature = null;
+		}
 
 		// Do the standard thread check.
 		check(signature);
@@ -93,15 +94,18 @@ public class AccessCheck {
 			//   [0] java.base/java.lang.Thread.getStackTrace
 			//   [1] software.coley.fxaccess.AccessCheck.check (this method)
 			//   [2] <calling-context> (could be the no-arg 'check' method)
-			StackTraceElement[] trace = thread.getStackTrace();
-			StackTraceElement callingContext = trace[2];
-			if (THIS_NAME.equals(callingContext.getClassName()))
-				callingContext = trace[3]; // Called from parameter-less 'check()'
+			StackWalker walker = StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
+			List<StackWalker.StackFrame> traceFrames = walker.walk(frames -> frames.skip(1).limit(2).toList());
+			if (traceFrames.isEmpty())
+				return;
+			StackWalker.StackFrame frame = traceFrames.get(0);
+			if (THIS_NAME.equals(frame.getClassName()))
+				frame = traceFrames.get(1);
 
 			// Record the calling context that was not on the right thread.
-			String className = callingContext.getClassName();
-			String methodName = callingContext.getMethodName();
-			int lineNumber = callingContext.getLineNumber();
+			String className = frame.getClassName();
+			String methodName = frame.getMethodName();
+			int lineNumber = frame.getLineNumber();
 			String key = className + "#" + methodName + " (Line:" + lineNumber + ")";
 			if (failedLocations.add(key))
 				listeners.forEach(l -> l.onCheckFailed(className, methodName, lineNumber, threadName, calledMethodSignature));
