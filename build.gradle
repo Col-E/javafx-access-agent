@@ -1,0 +1,48 @@
+plugins {
+    id 'java'
+    id 'maven-publish'
+}
+
+group = 'software.coley'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly group: 'jakarta.annotation', name: 'jakarta.annotation-api', version: '3.0.0'
+
+    compileOnly group: 'org.ow2.asm', name: 'asm', version: '9.7.1'
+    compileOnly group: 'org.ow2.asm', name: 'asm-tree', version: '9.7.1'
+}
+
+java {
+    withJavadocJar()
+    withSourcesJar()
+}
+
+jar {
+    manifest {
+        attributes(
+                'Agent-Class': 'software.coley.fxaccess.Agent',
+                'Premain-Class': 'software.coley.fxaccess.Agent',
+                'Can-Redefine-Classes': 'true',
+                'Can-Retransform-Classes': 'true'
+        )
+    }
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            groupId = project.group
+            artifactId = project.name
+            version = project.version
+            from components.java
+        }
+    }
+    repositories {
+        mavenLocal()
+    }
+}
