@@ -3,6 +3,7 @@ package software.coley.fxaccess;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 
@@ -11,10 +12,10 @@ import java.lang.instrument.Instrumentation;
 import java.security.ProtectionDomain;
 
 import static org.objectweb.asm.Opcodes.ASM9;
-import static org.objectweb.asm.Opcodes.INVOKESTATIC;
+import static org.objectweb.asm.Opcodes.H_INVOKESTATIC;
 
 /**
- * Agent that inserts calls to {@link AccessCheck#check(String)} after calls to JavaFX methods.
+ * Agent that inserts calls to {@link AccessCheck#check(String, String)} after calls to JavaFX methods.
  *
  * @author Matt Coley
  */
@@ -60,7 +61,8 @@ public class Agent {
 	}
 
 	private static class AccessInsertionClassVisitor extends ClassVisitor {
-		private static final String CHECK_CLASS_NAME = AccessCheck.class.getName().replace('.', '/');
+		private static final Handle BOOTSTRAP_HANDLE = new Handle(H_INVOKESTATIC, Bootstrapper.class.getName().replace('.', '/'),
+				"delegate", "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;Ljava/lang/invoke/MethodType;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;", false);
 		private String className;
 		private boolean transformed;
 
@@ -83,7 +85,6 @@ public class Agent {
 				return mv;
 
 			return new MethodVisitor(api, mv) {
-				private static final boolean DID_WE_FIX_FRAMES = false;
 				private int currentLine = -1;
 
 				@Override
@@ -104,30 +105,12 @@ public class Agent {
 						if (invocationOwner.equals("javafx/application/Platform"))
 							return;
 
-						// TODO: It would be nice to be able to just pass the method details in a formatted string, but
-						//  there are cases where that makes the stack-frames invalid, and we don't exactly have the
-						//  luxury of using COMPUTE_FRAMES... For now we will record this call and then look it up later.
-						//  But if we could fix the frame problem we would only need to do:
-						if (DID_WE_FIX_FRAMES) {
-							super.visitLdcInsn(AccessCheck.signature(invocationOwner, invokedMethodName, invokedMethodDesc));
-							super.visitMethodInsn(INVOKESTATIC, CHECK_CLASS_NAME, "check", "(Ljava/lang/String;)V", false);
-						} else {
-							// This sucks and kills performance because it makes us do a shitload of thread dumps to look up
-							// the values later when the method code is actually being executed.
-							String fxSignature = AccessCheck.signature(invocationOwner, invokedMethodName, invokedMethodDesc);
-							AccessCheck.register(className, declaredMethodName, currentLine, fxSignature);
-							super.visitMethodInsn(INVOKESTATIC, CHECK_CLASS_NAME, "check", "()V", false);
-						}
-
+						// Pass along keys for the current location, and the target JavaFX method location
+						String ourSignature = Keying.key(className, declaredMethodName, declaredMethodDesc, currentLine);
+						String fxSignature = Keying.signature(invocationOwner, invokedMethodName, invokedMethodDesc);
+						mv.visitInvokeDynamicInsn("acc-check", "()V", BOOTSTRAP_HANDLE, ourSignature, fxSignature);
 						transformed = true;
 					}
-				}
-
-				@Override
-				public void visitMaxs(int maxStack, int maxLocals) {
-					if (transformed)
-						maxStack = Math.max(1, maxStack);
-					super.visitMaxs(maxStack, maxLocals);
 				}
 			};
 		}
