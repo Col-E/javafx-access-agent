@@ -17,8 +17,8 @@ permissions:
   contents: write
 
 jobs:
-  test:
-    name: Run test suite
+  setup:
+    name: Setup
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +40,7 @@ jobs:
   # does not match any existing tags in the repository.
   build-and-release:
     name: Publish release
-    needs: test
+    needs: setup
     if: inputs.is-a-release && github.repository == 'Col-E/javafx-access-agent' && github.ref == 'refs/heads/master'
     strategy:
       fail-fast: false
