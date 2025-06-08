@@ -90,6 +90,19 @@ jreleaser {
         checksums = true
         files = false
     }
+    release {
+        github {
+            overwrite = true
+            tagName = project.version
+            changelog {
+                formatted = 'ALWAYS'
+                preset = 'conventional-commits'
+                contributors {
+                    format = '- {{contributorName}}{{#contributorUsernameAsLink}} ({{.}}){{/contributorUsernameAsLink}}'
+                }
+            }
+        }
+    }
     deploy {
         maven {
             nexus2 {
